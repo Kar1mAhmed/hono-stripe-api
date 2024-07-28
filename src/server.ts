@@ -8,6 +8,17 @@ type Bindings = {
 
 const app = new Hono<{ Bindings: Bindings }>();
 
+// Middleware to set CORS headers
+app.use('*', async (c, next) => {
+    c.header('Access-Control-Allow-Origin', '*');
+    c.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    c.header('Access-Control-Allow-Headers', 'Content-Type');
+    if (c.req.method === 'OPTIONS') {
+        return c.text('', 204);
+    }
+    await next();
+});
+
 app.get("/", (c) => c.text("Hello world, this is Hono!!"));
 
 const checkoutSessionSchema = z.object({
@@ -22,13 +33,11 @@ const billingPortalSessionSchema = z.object({
     returnUrl: z.string(),
 });
 
-
 const createStripeUserSchema = z.object({
     email: z.string(),
     name: z.string(),
     userId: z.string(),
 });
-
 
 // Function to create a Stripe Checkout session using Stripe SDK
 async function createCheckoutSession(priceId: string, CustomerStripeId: string, userId: string, baseUrl: string, stripeSecretKey: string) {
@@ -65,11 +74,8 @@ async function createBillingPortalSession(CustomerStripeId: string, returnUrl: s
     return session;
 }
 
-
 async function createStripeUser(email: string, name: string, userId: string, stripeSecretKey: string) {
-
     const stripe = new Stripe(stripeSecretKey);
-
     console.log("Creating a stripe customer")
     const customer = await stripe.customers.create({
         email: email,
@@ -77,14 +83,17 @@ async function createStripeUser(email: string, name: string, userId: string, str
         metadata: {
             userId: userId
         }
-    })
+    });
 
     return customer.id;
 }
 
-
 // Route to handle the POST request for creating a Checkout session
 app.post('/create-checkout-session', async (c) => {
+
+    const requestBody = await c.req.json();
+    console.log('Request body:', requestBody);
+
     const result = checkoutSessionSchema.safeParse(await c.req.json());
 
     if (!result.success) {
@@ -101,7 +110,6 @@ app.post('/create-checkout-session', async (c) => {
         return c.json({ error: 'Failed to create checkout session' }, 500);
     }
 });
-
 
 // Route to handle the POST request for creating a Billing Portal session
 app.post('/create-billing-portal-session', async (c) => {
@@ -122,8 +130,11 @@ app.post('/create-billing-portal-session', async (c) => {
     }
 });
 
-
+// Route to handle the POST request for creating a Stripe user
 app.post('/create-stripe-user', async (c) => {
+    console.log('Creating stripe user')
+    const requestBody = await c.req.json();
+    console.log('Request body:', requestBody);
     const result = createStripeUserSchema.safeParse(await c.req.json());
 
     if (!result.success) {
@@ -132,6 +143,8 @@ app.post('/create-stripe-user', async (c) => {
 
     const { email, name, userId } = result.data;
 
+    console.log('creating a stripe user', email, name, userId)
+
     try {
         const customerId = await createStripeUser(email, name, userId, c.env.STRIPE_SECRET_KEY);
         return c.json({
@@ -139,9 +152,8 @@ app.post('/create-stripe-user', async (c) => {
         });
     } catch (error) {
         console.log(error);
-        return c.json({ error: 'Failed to create billing portal session' }, 500);
+        return c.json({ error: 'Failed to create Stripe user' }, 500);
     }
 });
-
 
 export default app;
